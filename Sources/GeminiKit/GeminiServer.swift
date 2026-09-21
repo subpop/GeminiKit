@@ -121,7 +121,7 @@ public final class GeminiServer: @unchecked Sendable {
     /// ``GeminiServerError`` if the identity cannot be created or the port
     /// cannot be bound. May be called again after ``stop()``.
     public func start() async throws {
-        let alreadyRunning = lock.withLock { listener != nil }
+        let alreadyRunning = lock.withLock { self.listener != nil }
         if alreadyRunning { throw GeminiServerError.alreadyRunning }
 
         let identity = try resolveIdentity()
@@ -132,9 +132,10 @@ public final class GeminiServer: @unchecked Sendable {
         params.allowLocalEndpointReuse = true
         params.includePeerToPeer = true
 
-        let listener: NWListener
+        let newListener: NWListener
         do {
-            listener = try NWListener(using: params, on: NWEndpoint.Port(rawValue: requestedPort)!)
+            newListener = try NWListener(
+                using: params, on: NWEndpoint.Port(rawValue: requestedPort)!)
         } catch {
             throw GeminiServerError.listenFailed(error.localizedDescription)
         }
@@ -142,12 +143,12 @@ public final class GeminiServer: @unchecked Sendable {
         try await withCheckedThrowingContinuation {
             (continuation: CheckedContinuation<Void, Error>) in
             let once = ResumeBox()
-            listener.stateUpdateHandler = { [weak self] state in
+            newListener.stateUpdateHandler = { [weak self] state in
                 switch state {
                 case .ready:
                     self?.lock.withLock {
-                        self?.listener = listener
-                        self?.boundPortValue = listener.port?.rawValue
+                        self?.listener = newListener
+                        self?.boundPortValue = newListener.port?.rawValue
                     }
                     once.run { continuation.resume() }
                 case .failed(let error):
@@ -159,8 +160,8 @@ public final class GeminiServer: @unchecked Sendable {
                     break
                 }
             }
-            listener.newConnectionHandler = { [weak self] conn in self?.handle(conn) }
-            listener.start(queue: self.queue)
+            newListener.newConnectionHandler = { [weak self] conn in self?.handle(conn) }
+            newListener.start(queue: self.queue)
         }
     }
 
