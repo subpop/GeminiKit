@@ -77,4 +77,53 @@ struct GemtextParserTests {
     func empty() {
         #expect(GemtextParser.parse("") == [])
     }
+
+    @Test
+    func pipeTable() {
+        let blocks = GemtextParser.parse(
+            "```table\n| Name | Tier |\n| :--- | ---: |\n| arm | 2 |\n```"
+        )
+        #expect(blocks == [.table(rows: [["Name", "Tier"], ["arm", "2"]])])
+    }
+
+    @Test
+    func pipeTableAltTextCaseInsensitive() {
+        let blocks = GemtextParser.parse("```Table\n| A |\n| :- |\n| b |\n```")
+        #expect(blocks == [.table(rows: [["A"], ["b"]])])
+    }
+
+    @Test
+    func gridTable() {
+        let blocks = GemtextParser.parse(
+            "```table\n+-------+------+\n| Name  | Tier |\n+=======+======+\n| arm   | 2    |\n+-------+------+\n| x86   | 1    |\n+-------+------+\n```"
+        )
+        #expect(
+            blocks == [.table(rows: [["Name", "Tier"], ["arm", "2"], ["x86", "1"]])])
+    }
+
+    @Test
+    func gridTableWrappedCellsMerge() {
+        let blocks = GemtextParser.parse(
+            "```table\n+-------+-----+\n| A     | B   |\n+-------+-----+\n| long  | x   |\n| text  |     |\n+-------+-----+\n```"
+        )
+        #expect(blocks == [.table(rows: [["A", "B"], ["long text", "x"]])])
+    }
+
+    @Test
+    func malformedTableFallsBackToPre() {
+        let blocks = GemtextParser.parse("```table\n| a | b |\n| c |\n```")
+        #expect(blocks == [.pre("| a | b |\n| c |")])
+    }
+
+    @Test
+    func nonTableAltTextStaysPre() {
+        let blocks = GemtextParser.parse("```swift\n| a |\n```")
+        #expect(blocks == [.pre("| a |")])
+    }
+
+    @Test
+    func gridContentWithoutTableAltStaysPre() {
+        let blocks = GemtextParser.parse("```\n+---+\n| a |\n+---+\n```")
+        #expect(blocks == [.pre("+---+\n| a |\n+---+")])
+    }
 }

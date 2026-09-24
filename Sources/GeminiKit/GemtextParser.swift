@@ -1,6 +1,6 @@
 import Foundation
 
-/// One parsed Gemtext line: prose, heading, list item, quote, preformatted text, or link.
+/// One parsed Gemtext line: prose, heading, list item, quote, preformatted text, table, or link.
 public enum GemtextBlock: Equatable, Sendable {
     /// Plain paragraph text.
     case text(String)
@@ -12,6 +12,9 @@ public enum GemtextBlock: Equatable, Sendable {
     case quote(String)
     /// Fenced ` ``` ` preformatted block (fences excluded).
     case pre(String)
+    /// Fenced ` ```table ` ASCII-grid table (e.g. md2gemtext output);
+    /// `rows[0]` is the header row.
+    case table(rows: [[String]])
     /// `=> URL [label]` link line.
     case link(url: String, label: String?)
 
@@ -31,6 +34,7 @@ public enum GemtextParser {
     public static func parse(_ gemtext: String) -> [GemtextBlock] {
         var blocks: [GemtextBlock] = []
         var preLines: [String] = []
+        var preAlt: String?
         var inPre = false
 
         for rawLine in gemtext.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
@@ -40,16 +44,20 @@ public enum GemtextParser {
             if inPre {
                 if line.trimmingCharacters(in: .whitespaces) == "```" {
                     inPre = false
-                    blocks.append(.pre(preLines.joined(separator: "\n")))
+                    blocks.append(finishPre(lines: preLines, altText: preAlt))
                     preLines.removeAll()
+                    preAlt = nil
                 } else {
                     preLines.append(line)
                 }
                 continue
             }
 
-            if line.trimmingCharacters(in: .whitespaces) == "```" {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("```") {
                 inPre = true
+                let alt = trimmed.dropFirst(3).trimmingCharacters(in: .whitespaces)
+                preAlt = alt.isEmpty ? nil : String(alt)
                 continue
             }
 
@@ -80,6 +88,106 @@ public enum GemtextParser {
             blocks.append(.pre(preLines.joined(separator: "\n")))
         }
         return blocks
+    }
+
+    /// Builds the block for a closed preformatted section: a `.table` when the
+    /// fence alt text is `table` (case-insensitive, e.g. md2gemtext output) and
+    /// the content parses as an ASCII grid, otherwise a plain `.pre`.
+    private static func finishPre(lines: [String], altText: String?) -> GemtextBlock {
+        if let altText, altText.lowercased() == "table", let rows = parseTable(lines) {
+            return .table(rows: rows)
+        }
+        return .pre(lines.joined(separator: "\n"))
+    }
+
+    /// Parses table-drawing preformatted content into rows (`rows[0]` is the header).
+    /// Supports `+---+` separator grids (consecutive `|` lines between separators
+    /// merge into one logical row for wrapped cells) and md2gemtext-style `| a | b |`
+    /// rows with a `:---` delimiter row after the header. Returns nil when the
+    /// content is not a well-formed table.
+    private static func parseTable(_ lines: [String]) -> [[String]]? {
+        let content = lines.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        guard !content.isEmpty else { return nil }
+        if content.contains(where: isGridSeparator) {
+            return parseGridTable(content)
+        }
+        return parsePipeTable(content)
+    }
+
+    /// `+---+` (or `+===+`) separator line.
+    private static func isGridSeparator(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasPrefix("+"), trimmed.hasSuffix("+"), trimmed.count >= 3,
+            trimmed.allSatisfy({ "+-=".contains($0) }),
+            trimmed.contains("-") || trimmed.contains("=")
+        else { return false }
+        return true
+    }
+
+    /// Splits a `| cell | cell |` line into trimmed cells, or nil if not pipe-delimited.
+    private static func splitPipeRow(_ line: String) -> [String]? {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasPrefix("|"), trimmed.hasSuffix("|"), trimmed.count >= 2 else {
+            return nil
+        }
+        return trimmed.dropFirst().dropLast().split(
+            separator: "|", omittingEmptySubsequences: false
+        ).map { $0.trimmingCharacters(in: .whitespaces) }
+    }
+
+    /// Grid tables: groups of consecutive `|` lines separated by `+---+` lines.
+    private static func parseGridTable(_ lines: [String]) -> [[String]]? {
+        var rows: [[String]] = []
+        var run: [[String]] = []
+        var columnCount: Int?
+        var sawData = false
+
+        func flush() {
+            guard !run.isEmpty else { return }
+            let merged = (0..<(columnCount ?? 0)).map { col in
+                run.compactMap { $0[col].isEmpty ? nil : $0[col] }.joined(separator: " ")
+            }
+            rows.append(merged)
+            run.removeAll()
+        }
+
+        for line in lines {
+            if isGridSeparator(line) {
+                flush()
+                continue
+            }
+            guard let cells = splitPipeRow(line) else { return nil }
+            if let columnCount, cells.count != columnCount { return nil }
+            columnCount = cells.count
+            run.append(cells)
+            sawData = true
+        }
+        flush()
+        guard sawData else { return nil }
+        return rows
+    }
+
+    /// md2gemtext tables: `| a | b |` rows with a `:---` delimiter row after the header.
+    private static func parsePipeTable(_ lines: [String]) -> [[String]]? {
+        var rows: [[String]] = []
+        for line in lines {
+            guard let cells = splitPipeRow(line) else { return nil }
+            rows.append(cells)
+        }
+        guard let first = rows.first, !first.isEmpty,
+            rows.allSatisfy({ $0.count == first.count })
+        else { return nil }
+        // Drop the `:---` alignment delimiter below the header, when present.
+        if rows.count >= 2,
+            rows[1].allSatisfy({
+                !$0.isEmpty
+                    && $0.allSatisfy({ "-:".contains($0) })
+                    && $0.contains("-")
+            })
+        {
+            rows.remove(at: 1)
+        }
+        return rows
     }
 
     /// "#", "##", "###" followed by optional space + text; anything else is literal text.

@@ -118,6 +118,10 @@ func renderANSI(_ blocks: [GemtextBlock]) -> String {
             out.append("\(ANSI.dim)> \(s)\(ANSI.reset)")
         case .pre(let s):
             out.append("\(ANSI.dim)\(s)\(ANSI.reset)")
+        case .table(let rows):
+            out.append(
+                "\(ANSI.dim)\(rows.map { "| " + $0.joined(separator: " | ") + " |" }.joined(separator: "\n"))\(ANSI.reset)"
+            )
         }
     }
     return out.joined(separator: "\n") + "\n"
