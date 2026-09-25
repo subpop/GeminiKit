@@ -33,8 +33,8 @@ import GeminiKit
 
 let uri = try GeminiURI.parse("gemini://example.com/")
 switch try await GeminiClient.shared.fetch(uri) {
-case .content(let mime, let data):
-    print(mime, data.count)
+case .content(let code, let mime, let data, _):
+    print(code, mime, data.count)
 case .redirect(let target):
     print("redirect:", target)
 case .status(let status):
@@ -47,7 +47,7 @@ case .certMismatch:
 Parse Gemtext:
 
 ```swift
-if case .content(_, let data) = try await GeminiClient.shared.fetch(uri) {
+if case .content(_, _, let data, _) = try await GeminiClient.shared.fetch(uri) {
     let blocks = GemtextParser.parse(gemtextString(from: data))
     for block in blocks {
         switch block {

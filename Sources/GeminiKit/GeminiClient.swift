@@ -6,8 +6,10 @@ import Security
 /// The outcome of ``GeminiClient/fetch(_:)``: body bytes, a redirect,
 /// a terminal status, or a TOFU certificate mismatch.
 public enum GeminiFetchResult: Sendable {
-    /// `2x` success: MIME type plus raw body bytes.
-    case content(mimetype: String, data: Data)
+    /// `2x` success: status code, MIME type, raw body bytes, and the details
+    /// of the certificate the server presented (`nil` when its DER would not
+    /// parse; the TOFU fingerprint check still applies).
+    case content(statusCode: Int, mimetype: String, data: Data, certificate: PresentedCertificateInfo?)
     /// `3x` redirect: the target URL from the response META field.
     case redirect(target: String)
     /// Any non-body terminal status (`1x` input, `4x`–`6x` failures).
@@ -19,7 +21,7 @@ public enum GeminiFetchResult: Sendable {
     /// One-line summary for logging (body bytes and metadata elided).
     public var tag: String {
         switch self {
-        case .content(let m, let d): return "content \(m) \(d.count)B"
+        case .content(let code, let m, let d, _): return "content \(code) \(m) \(d.count)B"
         case .redirect(let t): return "redirect \(t)"
         case .status(let s): return "status \(s.code)"
         case .certMismatch: return "certMismatch"
@@ -52,7 +54,7 @@ public enum GeminiFetchError: LocalizedError, Equatable, Sendable {
 ///
 ///     let uri = try GeminiURI.parse("gemini://example.com/")
 ///     switch try await GeminiClient.shared.fetch(uri) {
-///     case .content(let mime, let data): print(mime, data.count)
+///     case .content(let code, let mime, let data, _): print(code, mime, data.count)
 ///     case .redirect(let target): print("redirect:", target)
 ///     case .status(let status): print("status:", status.code)
 ///     case .certMismatch: print("certificate changed!")
@@ -218,6 +220,11 @@ private enum GeminiConnection {
             let der = SecCertificateCopyData(cert) as Data
             let digest = SHA256.hash(data: der)
             let presented = [UInt8](digest)
+            let presentedInfo = PresentedCertificateInfo.parse(
+                der: der,
+                fingerprint: presented,
+                subjectSummary: SecCertificateCopySubjectSummary(cert) as String?
+            )
 
             // The store is an actor: hop onto Swift concurrency for the Keychain
             // check, then hop back to the network queue before touching session
@@ -230,6 +237,7 @@ private enum GeminiConnection {
                         host: uri.host, port: uri.port, fingerprint: presented)
                 }
                 queue.async {
+                    state.presentedCertificate = presentedInfo
                     if case .mismatch(let stored, let presentedFingerprint) = outcome {
                         certMismatch.value = (stored: stored, presented: presentedFingerprint)
                         complete(false)
@@ -350,6 +358,7 @@ private enum GeminiConnection {
             state.isSuccess = header.status.isSuccess
             if header.status.isSuccess {
                 state.body = Data(state.buffer[range.upperBound...])
+                state.statusCode = header.status.code
                 state.mimetype = header.status.meta
                 state.buffer.removeAll(keepingCapacity: false)
             } else if header.status.isRedirect {
@@ -362,11 +371,14 @@ private enum GeminiConnection {
         }
 
         func deliverContent() {
-            guard let mime = state.mimetype else {
+            guard let code = state.statusCode, let mime = state.mimetype else {
                 fail(.protocolError("Invalid success response"))
                 return
             }
-            finishSuccess(.content(mimetype: mime, data: state.body))
+            finishSuccess(
+                .content(
+                    statusCode: code, mimetype: mime, data: state.body,
+                    certificate: state.presentedCertificate))
         }
 
         conn.stateUpdateHandler = { st in
@@ -418,7 +430,9 @@ private final class SessionState: @unchecked Sendable {
     var headerParsed = false
     var isSuccess = false
     var earlyResultPending = false
+    var statusCode: Int?
     var mimetype: String?
+    var presentedCertificate: PresentedCertificateInfo?
     var totalReceived = 0
     var finished = false
     var idleTimer: Task<Void, Never>?

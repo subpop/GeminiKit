@@ -106,9 +106,17 @@ struct ClientServerTests {
     @Test func fetchIndex() async throws {
         try await withServer { fx in
             let r = try await fx.client.fetch(try fx.uri("/"), timeout: 15)
-            guard case .content(let mime, let data) = r else { Issue.record("expected content, got \(r)"); return }
+            guard case .content(let code, let mime, let data, let certificate) = r else {
+                Issue.record("expected content, got \(r)")
+                return
+            }
+            #expect(code == 20)
             #expect(mime == "text/gemini")
             #expect(String(data: data, encoding: .utf8)?.contains("gemini") == true)
+            let presented = try #require(certificate)
+            #expect(presented.dnsNames.contains("localhost"))
+            #expect(presented.notValidBefore <= Date())
+            #expect(presented.notValidAfter > Date())
         }
     }
 
@@ -119,7 +127,7 @@ struct ClientServerTests {
             #expect(s.code == 10)
             let base = try fx.uri("/input")
             let answered = try await fx.client.fetch(base.withInputQuery("hello"), timeout: 15)
-            guard case .content(_, let data) = answered else { Issue.record("expected content"); return }
+            guard case .content(_, _, let data, _) = answered else { Issue.record("expected content"); return }
             #expect(String(data: data, encoding: .utf8)?.contains("hello") == true)
         }
     }
@@ -131,7 +139,7 @@ struct ClientServerTests {
             #expect(t == "/echo?from=redirect")
             // Follow it manually: client does not auto-follow.
             let followed = try await fx.client.fetch(try fx.uri(t), timeout: 15)
-            guard case .content(_, let data) = followed else { Issue.record("expected content"); return }
+            guard case .content(_, _, let data, _) = followed else { Issue.record("expected content"); return }
             #expect(String(data: data, encoding: .utf8)?.contains("from=redirect") == true)
         }
     }
@@ -155,7 +163,7 @@ struct ClientServerTests {
     @Test func echoQuery() async throws {
         try await withServer { fx in
             let r = try await fx.client.fetch(try fx.uri("/echo?ping123"), timeout: 15)
-            guard case .content(_, let data) = r else { Issue.record("expected content"); return }
+            guard case .content(_, _, let data, _) = r else { Issue.record("expected content"); return }
             #expect(String(data: data, encoding: .utf8)?.contains("ping123") == true)
         }
     }

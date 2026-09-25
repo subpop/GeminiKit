@@ -75,9 +75,9 @@ struct Fetch: AsyncParsableCommand {
             fail(
                 "certificate mismatch: trusted \(hex(stored).prefix(16))… presented \(hex(presented).prefix(16))…"
             )
-        case .content(let mime, let data):
+        case .content(let code, let mime, let data, _):
             if statusOnly {
-                print("20 \(mime)")
+                print("\(code) \(mime)")
             } else if raw || !mime.hasPrefix("text/gemini") {
                 FileHandle.standardOutput.write(data)
             } else {

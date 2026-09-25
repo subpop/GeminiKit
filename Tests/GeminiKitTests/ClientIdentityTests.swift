@@ -77,7 +77,7 @@ struct ClientIdentityTests {
             let port = try #require(server.boundPort)
             let uri = try GeminiURI.parse("gemini://localhost:\(port)/")
             let result = try await client.fetch(uri, timeout: 15)
-            guard case .content(_, let data) = result else {
+            guard case .content(_, _, let data, _) = result else {
                 Issue.record("expected content, got \(result)")
                 return
             }
@@ -91,7 +91,7 @@ struct ClientIdentityTests {
             let uri = try GeminiURI.parse("gemini://localhost:\(port)/")
             let identity = try makeClientIdentity()
             let result = try await client.fetch(uri, clientIdentity: identity, timeout: 15)
-            guard case .content(_, let data) = result else {
+            guard case .content(_, _, let data, _) = result else {
                 Issue.record("expected content, got \(result)")
                 return
             }

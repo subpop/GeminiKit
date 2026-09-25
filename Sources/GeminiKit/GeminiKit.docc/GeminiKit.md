@@ -17,7 +17,7 @@ GeminiKit implements the core Gemini protocol pieces:
 ```swift
 let uri = try GeminiURI.parse("gemini://example.com/")
 switch try await GeminiClient.shared.fetch(uri) {
-case .content(let mime, let data) where mime.hasPrefix("text/gemini"):
+case .content(_, let mime, let data, _) where mime.hasPrefix("text/gemini"):
     let blocks = GemtextParser.parse(gemtextString(from: data))
     print(blocks)
 case .redirect(let target):

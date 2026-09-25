@@ -219,7 +219,7 @@ public enum GemtextParser {
 }
 
 /// Decode a `text/gemini` body to String (UTF-8, falling back to Latin-1).
-/// - Parameter data: Raw response body bytes from ``GeminiFetchResult/content(mimetype:data:)``.
+/// - Parameter data: Raw response body bytes from ``GeminiFetchResult/content(statusCode:mimetype:data:certificate:)``.
 public func gemtextString(from data: Data) -> String {
     String(data: data, encoding: .utf8)
         ?? String(data: data, encoding: .isoLatin1)
