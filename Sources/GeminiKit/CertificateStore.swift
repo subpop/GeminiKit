@@ -77,6 +77,62 @@ public actor CertificateStore {
         _ = SecItemDelete(query as CFDictionary)
     }
 
+    /// A pinned certificate fingerprint for a `host:port`.
+    public struct Pin: Sendable, Hashable {
+        /// The pinned host.
+        public let host: String
+        /// The pinned port.
+        public let port: Int
+        /// The raw 32-byte SHA-256 fingerprint of the leaf certificate DER.
+        public let fingerprint: [UInt8]
+    }
+
+    /// Lists all pins stored under this store's service prefix, sorted by host then port.
+    public func listPins() -> [Pin] {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecReturnAttributes as String: true,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitAll,
+            kSecUseDataProtectionKeychain as String: true,
+        ]
+        var items: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &items) == errSecSuccess else {
+            return []
+        }
+        let matches: [[String: Any]]
+        if let arr = items as? [[String: Any]] {
+            matches = arr
+        } else if let single = items as? [String: Any] {
+            matches = [single]
+        } else {
+            return []
+        }
+        let prefix = servicePrefix + "."
+        var pins: [Pin] = []
+        for attrs in matches {
+            guard let service = attrs[kSecAttrService as String] as? String,
+                service.hasPrefix(prefix),
+                let data = attrs[kSecValueData as String] as? Data,
+                data.count == 32,
+                let pin = Self.pin(from: String(service.dropFirst(prefix.count)), fingerprint: [UInt8](data))
+            else { continue }
+            pins.append(pin)
+        }
+        return pins.sorted { ($0.host, $0.port) < ($1.host, $1.port) }
+    }
+
+    /// Parses a `"host:port"` service suffix into a ``Pin``; nil when malformed.
+    /// Splits on the last colon so IPv6 literals keep working.
+    private static func pin(from serviceSuffix: String, fingerprint: [UInt8]) -> Pin? {
+        guard let colon = serviceSuffix.lastIndex(of: ":"),
+            colon != serviceSuffix.startIndex,
+            serviceSuffix.index(after: colon) != serviceSuffix.endIndex,
+            let port = Int(serviceSuffix[serviceSuffix.index(after: colon)...])
+        else { return nil }
+        return Pin(host: String(serviceSuffix[..<colon]), port: port, fingerprint: fingerprint)
+    }
+
     /// Delete only fingerprints stored under this store's service prefix.
     /// Enumerates generic-password items (attributes only) and removes matches.
     public func forgetAll() {
