@@ -9,8 +9,9 @@ GeminiKit implements the core Gemini protocol pieces:
 - Parse `gemini://` URLs with ``GeminiURI``, following links via ``GeminiURI/resolving(_:)``.
 - Fetch pages with ``GeminiClient``, which pins server certificates on first
   sight (TOFU) through ``CertificateStore``.
-- Render `text/gemini` bodies by decoding them with ``gemtextString(from:)``
-  and splitting them into ``GemtextBlock`` values with ``GemtextParser``.
+- Decode `text/*` bodies with ``textString(from:charset:)`` (UTF-8 first,
+  falling back to lossy US-ASCII) and split `text/gemini` into
+  ``GemtextBlock`` values with ``GemtextParser``.
 - Serve content with ``GeminiServer`` by mapping each request URI to a
   ``GeminiServerResponse``.
 
@@ -56,6 +57,7 @@ case .certMismatch:
 
 - ``GemtextParser``
 - ``GemtextBlock``
+- ``textString(from:charset:)``
 - ``gemtextString(from:)``
 
 ### Serving

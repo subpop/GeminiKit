@@ -126,4 +126,43 @@ struct GemtextParserTests {
         let blocks = GemtextParser.parse("```\n+---+\n| a |\n+---+\n```")
         #expect(blocks == [.pre("+---+\n| a |\n+---+")])
     }
+
+    @Test
+    func textStringDecodesUTF8() {
+        let data = Data("héllo wörld".utf8)
+        #expect(textString(from: data) == "héllo wörld")
+        #expect(textString(from: data, charset: "utf-8") == "héllo wörld")
+        #expect(textString(from: data, charset: "UTF-8") == "héllo wörld")
+    }
+
+    @Test
+    func textStringHonorsASCIICharset() {
+        let data = Data("plain ascii".utf8)
+        #expect(textString(from: data, charset: "us-ascii") == "plain ascii")
+        #expect(textString(from: data, charset: "ASCII") == "plain ascii")
+        #expect(textString(from: data, charset: "\"us-ascii\"") == "plain ascii")
+    }
+
+    @Test
+    func textStringFallsBackToLossyASCII() {
+        // 0xE9 alone is not valid UTF-8; Latin-1 would decode it as "é".
+        let data = Data([0x63, 0x61, 0x66, 0xE9])
+        let decoded = textString(from: data)
+        #expect(decoded == "caf�")
+        #expect(textString(from: data, charset: "utf-8") == "caf�")
+        #expect(textString(from: data, charset: nil) == "caf�")
+    }
+
+    @Test
+    func textStringTreatsUnknownCharsetAsUTF8() {
+        let data = Data("héllo".utf8)
+        #expect(textString(from: data, charset: "iso-8859-1") == "héllo")
+        #expect(textString(from: data, charset: "") == "héllo")
+    }
+
+    @Test
+    func gemtextStringFallsBackToLossyASCII() {
+        #expect(gemtextString(from: Data("hi".utf8)) == "hi")
+        #expect(gemtextString(from: Data([0xE9])) == "�")
+    }
 }

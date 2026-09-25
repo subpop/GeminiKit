@@ -218,10 +218,39 @@ public enum GemtextParser {
     }
 }
 
-/// Decode a `text/gemini` body to String (UTF-8, falling back to Latin-1).
+/// Normalize a `charset` MIME parameter value for the supported charsets (UTF-8, US-ASCII).
+/// - Parameter charset: Raw `charset` parameter value (e.g. `"\"us-ascii\""`), or `nil`.
+/// - Returns: Canonical lowercase name without quotes, or `nil` when absent/empty.
+func normalizedCharset(_ charset: String?) -> String? {
+    guard var value = charset?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+        return nil
+    }
+    if value.hasPrefix("\""), value.hasSuffix("\""), value.count >= 2 {
+        value = String(value.dropFirst().dropLast())
+    }
+    let lowered = value.lowercased()
+    return lowered.isEmpty ? nil : lowered
+}
+
+/// Decode a `text/*` response body to String, honoring the `charset` MIME parameter.
+///
+/// UTF-8 is tried first (per the Gemini spec, an absent or unrecognized charset
+/// means UTF-8); when it fails, decoding falls back to lossy US-ASCII.
+/// - Parameters:
+///   - data: Raw response body bytes from ``GeminiFetchResult/content(statusCode:mimetype:data:certificate:)``.
+///   - charset: Raw `charset` parameter value from the response MIME type, or `nil`.
+public func textString(from data: Data, charset: String? = nil) -> String {
+    switch normalizedCharset(charset) {
+    case "us-ascii", "ascii":
+        return String(decoding: data, as: Unicode.ASCII.self)
+    default:
+        // UTF-8 (default per spec), or an unrecognized charset treated as UTF-8.
+        return String(data: data, encoding: .utf8) ?? String(decoding: data, as: Unicode.ASCII.self)
+    }
+}
+
+/// Decode a `text/gemini` body to String (UTF-8, falling back to lossy ASCII).
 /// - Parameter data: Raw response body bytes from ``GeminiFetchResult/content(statusCode:mimetype:data:certificate:)``.
 public func gemtextString(from data: Data) -> String {
-    String(data: data, encoding: .utf8)
-        ?? String(data: data, encoding: .isoLatin1)
-        ?? String(decoding: data, as: UTF8.self)
+    textString(from: data)
 }
